@@ -53,7 +53,7 @@ class DatabaseManager:
                     return json.load(source)
             except (json.JSONDecodeError, UnicodeError) as exc:
                 raise ValueError(
-                    f"Повреждён JSON-файл {path.name}"
+                    f"Поврежден JSON-файл {path.name}"
                 ) from exc
 
     def write_json(self, settings_key: str, value: Any) -> None:

@@ -1,42 +1,79 @@
-"""Автоматическое обновление курсов по расписанию"""
+"""Автоматическое обновление курсов в фоновом потоке"""
 
 import logging
-import time
+from threading import Event, Thread
 
-from valutatrade_hub.core.exceptions import ApiRequestError
-from valutatrade_hub.logging_config import configure_logging
+from valutatrade_hub.infra.settings import SettingsLoader
+from valutatrade_hub.parser_service.credentials import load_api_key
 from valutatrade_hub.parser_service.updater import RatesUpdater
 
 DEFAULT_INTERVAL_SECONDS = 300
 
 
-def run_scheduler(
-    interval_seconds: int = DEFAULT_INTERVAL_SECONDS,
-) -> None:
-    """Периодически обновлять курсы"""
-    if interval_seconds <= 0:
-        raise ValueError("Интервал должен быть положительным")
+class RatesScheduler:
+    """Планировщик периодического обновления курсов"""
 
-    configure_logging()
-    logger = logging.getLogger("valutatrade.parser")
-    updater = RatesUpdater.create_default()
+    def __init__(self, interval_seconds: int | None = None) -> None:
+        if interval_seconds is None:
+            interval_seconds = int(
+                SettingsLoader().get(
+                    "rates_ttl_seconds",
+                    DEFAULT_INTERVAL_SECONDS,
+                )
+            )
 
-    try:
-        while True:
+        if interval_seconds <= 0:
+            raise ValueError("Интервал должен быть положительным")
+
+        self._interval_seconds = interval_seconds
+        self._stop_event = Event()
+        self._thread: Thread | None = None
+        self._logger = logging.getLogger("valutatrade.parser")
+
+    def _run(self) -> None:
+        """Периодически получать и сохранять курсы"""
+        while not self._stop_event.wait(self._interval_seconds):
             try:
-                updater.run_update()
+                source = None if load_api_key() else "coingecko"
 
-            except ApiRequestError as exc:
-                logger.error(
-                    "Обновление не выполнено: %s",
-                    exc,
+                updater = RatesUpdater.create_default()
+                result = updater.run_update(source=source)
+
+                self._logger.info(
+                    "Автоматическое обновление: сохранено %s курсов",
+                    result["updated"],
                 )
 
-            time.sleep(interval_seconds)
+                for provider, error in result["failures"].items():
+                    self._logger.warning(
+                        "Ошибка источника %s: %s",
+                        provider,
+                        error,
+                    )
 
-    except KeyboardInterrupt:
-        print("Планировщик остановлен")
+            except Exception:
+                # Фоновый поток не должен завершаться из-за ошибки API
+                self._logger.exception("Не удалось автоматически обновить курсы")
 
+    def start(self) -> None:
+        """Запустить фоновое обновление"""
+        if self._thread is not None and self._thread.is_alive():
+            return
 
-if __name__ == "__main__":
-    run_scheduler()
+        self._stop_event.clear()
+
+        self._thread = Thread(
+            target=self._run,
+            name="valutatrade-rates",
+            daemon=True,
+        )
+
+        self._thread.start()
+
+    def stop(self) -> None:
+        """Остановить фоновое обновление"""
+        self._stop_event.set()
+
+        if self._thread is not None:
+            self._thread.join(timeout=1)
+            self._thread = None

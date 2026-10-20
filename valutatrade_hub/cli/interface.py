@@ -13,6 +13,11 @@ from valutatrade_hub.core.exceptions import (
 )
 from valutatrade_hub.core.usecases import UseCases
 from valutatrade_hub.logging_config import configure_logging
+from valutatrade_hub.parser_service.credentials import (
+    configure_api_key,
+    load_api_key,
+)
+from valutatrade_hub.parser_service.scheduler import RatesScheduler
 from valutatrade_hub.parser_service.updater import RatesUpdater
 
 
@@ -183,7 +188,7 @@ class WalletCLI:
             return
 
         print("Команды: " + ", ".join(self.parsers))
-        print("Дополнительно: help [команда], logout, exit")
+        print("Дополнительно: help [команда], set-api-key, logout, exit")
         print("Поддерживаемые валюты: " + ", ".join(CURRENCY_REGISTRY))
 
     def execute(self, line: str) -> bool:
@@ -215,6 +220,13 @@ class WalletCLI:
 
                 self.user_id = None
                 print("Вы вышли из системы")
+                return True
+
+            if command == "set-api-key":
+                if tokens:
+                    raise ValueError("set-api-key не принимает аргументы")
+
+                configure_api_key(force=True)
                 return True
 
             parser = self.parsers.get(command)
@@ -424,7 +436,42 @@ class WalletCLI:
 def main() -> None:
     """Главная точка входа CLI"""
     configure_logging()
-    WalletCLI().run()
+
+    print("Запуск ValutaTrade Hub")
+
+    configure_api_key()
+
+    print("\nПолучение актуальных курсов...")
+
+    try:
+        source = None if load_api_key() else "coingecko"
+
+        updater = RatesUpdater.create_default()
+        result = updater.run_update(source=source)
+
+        print(f"Обновлено курсов: {result['updated']}")
+
+        if result["failures"]:
+            print("Некоторые источники недоступны:")
+
+            for provider, error in result["failures"].items():
+                print(f"- {provider}: {error}")
+
+    except (ApiRequestError, OSError, ValueError) as exc:
+        print(f"Не удалось обновить курсы: {exc}")
+        print("Продолжение работы с локальным кешем")
+
+    scheduler = RatesScheduler()
+    scheduler.start()
+
+    print("Автоматическое обновление курсов включено")
+    print("Интервал обновления: 5 минут")
+
+    try:
+        WalletCLI().run()
+
+    finally:
+        scheduler.stop()
 
 
 if __name__ == "__main__":

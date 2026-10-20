@@ -1,10 +1,10 @@
 """Конфигурация сервиса получения курсов"""
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from valutatrade_hub.infra.settings import SettingsLoader
+from valutatrade_hub.parser_service.credentials import load_api_key
 
 CRYPTO_ID_MAP = {
     "BTC": "bitcoin",
@@ -25,14 +25,13 @@ REQUEST_TIMEOUT = 10
 class ParserConfig:
     """Параметры API и хранения курсов"""
 
-    exchangerate_api_key: str | None = field(
-        default_factory=lambda: os.getenv("EXCHANGERATE_API_KEY")
-    )
+    exchangerate_api_key: str | None = field(default_factory=load_api_key)
 
     coingecko_url: str = COINGECKO_URL
     exchangerate_api_url: str = EXCHANGERATE_API_URL
 
     base_currency: str = "USD"
+
     fiat_currencies: tuple[str, ...] = FIAT_CURRENCIES
     crypto_currencies: tuple[str, ...] = CRYPTO_CURRENCIES
 

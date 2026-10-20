@@ -33,7 +33,7 @@ select = ["E", "F", "I", "B", "UP"]
 [tool.valutatrade]
 data_dir = "data"
 logs_dir = "logs"
-rates_ttl_seconds = 300
+rates_ttl_seconds = 60
 base_currency = "USD"
 log_level = "INFO"
 log_format = "text"

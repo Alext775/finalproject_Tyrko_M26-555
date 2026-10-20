@@ -4,23 +4,32 @@ import os
 import threading
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+DEFAULT_DATA_DIR = "data"
+DEFAULT_LOGS_DIR = "logs"
+DEFAULT_RATES_TTL = 300
+DEFAULT_BASE_CURRENCY = "USD"
+DEFAULT_LOG_LEVEL = "INFO"
+DEFAULT_LOG_FORMAT = "text"
 
 
 class SettingsLoader:
     """Единственный экземпляр настроек через __new__"""
 
-    _instance: "SettingsLoader | None" = None
-    _instance_lock = threading.Lock()
+    _instance: ClassVar["SettingsLoader | None"] = None
+    _instance_lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __new__(cls) -> "SettingsLoader":
-        # __new__ выбран для простой реализации Singleton.
+        """Создать или вернуть единственный экземпляр"""
+        # __new__ выбран из-за простоты и читаемости
         with cls._instance_lock:
             if cls._instance is None:
-                cls._instance = super().__new__(cls)
-                cls._instance._initialized = False
+                instance = super().__new__(cls)
+                instance._initialized = False
+                cls._instance = instance
 
         return cls._instance
 
@@ -29,38 +38,40 @@ class SettingsLoader:
             self.reload()
             self._initialized = True
 
+    @staticmethod
+    def _absolute_path(value: str) -> Path:
+        """Преобразовать путь относительно корня проекта"""
+        path = Path(value)
+
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
+
+        return path.resolve()
+
     def reload(self) -> None:
-        """Перезагрузить настройки"""
+        """Перезагрузить настройки из pyproject.toml"""
         config_file = PROJECT_ROOT / "pyproject.toml"
 
         with config_file.open("rb") as source:
-            values = (
-                tomllib.load(source)
-                .get("tool", {})
-                .get("valutatrade", {})
-            )
+            document: dict[str, Any] = tomllib.load(source)
 
-        data_dir = Path(
+        values: dict[str, Any] = document.get("tool", {}).get("valutatrade", {})
+
+        data_dir = self._absolute_path(
             os.getenv(
                 "VALUTATRADE_DATA_DIR",
-                values.get("data_dir", "data"),
+                str(values.get("data_dir", DEFAULT_DATA_DIR)),
             )
         )
 
-        logs_dir = Path(
+        logs_dir = self._absolute_path(
             os.getenv(
                 "VALUTATRADE_LOGS_DIR",
-                values.get("logs_dir", "logs"),
+                str(values.get("logs_dir", DEFAULT_LOGS_DIR)),
             )
         )
 
-        if not data_dir.is_absolute():
-            data_dir = PROJECT_ROOT / data_dir
-
-        if not logs_dir.is_absolute():
-            logs_dir = PROJECT_ROOT / logs_dir
-
-        self._config = {
+        self._config: dict[str, Any] = {
             "data_dir": data_dir,
             "users_file": data_dir / "users.json",
             "portfolios_file": data_dir / "portfolios.json",
@@ -68,13 +79,16 @@ class SettingsLoader:
             "history_file": data_dir / "exchange_rates.json",
             "logs_dir": logs_dir,
             "rates_ttl_seconds": int(
-                values.get("rates_ttl_seconds", 300)
+                values.get("rates_ttl_seconds", DEFAULT_RATES_TTL)
             ),
-            "base_currency": values.get("base_currency", "USD"),
-            "log_level": values.get("log_level", "INFO"),
-            "log_format": values.get("log_format", "text"),
+            "base_currency": str(values.get("base_currency", DEFAULT_BASE_CURRENCY)),
+            "log_level": str(values.get("log_level", DEFAULT_LOG_LEVEL)),
+            "log_format": str(values.get("log_format", DEFAULT_LOG_FORMAT)),
         }
 
+        if self._config["rates_ttl_seconds"] <= 0:
+            raise ValueError("rates_ttl_seconds должен быть положительным")
+
     def get(self, key: str, default: Any = None) -> Any:
-        """Получить настройку"""
+        """Получить значение настройки"""
         return self._config.get(key, default)

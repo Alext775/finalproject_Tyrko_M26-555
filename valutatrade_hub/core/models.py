@@ -3,8 +3,9 @@
 import hashlib
 import hmac
 import secrets
+from collections.abc import Callable
 from datetime import datetime
-from typing import Callable
+from typing import Any, Self
 
 from valutatrade_hub.core.currencies import get_currency
 from valutatrade_hub.core.exceptions import InsufficientFundsError
@@ -18,6 +19,56 @@ from valutatrade_hub.core.utils import (
 )
 
 
+def _validate_user_id(value: object) -> int:
+    """Проверить идентификатор пользователя"""
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError("user_id должен быть положительным целым числом")
+
+    return value
+
+
+def _validate_nonempty_string(value: object, field_name: str) -> str:
+    """Проверить непустую строку"""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} не может быть пустым")
+
+    return value.strip()
+
+
+def _validate_password(password: object) -> str:
+    """Проверить длину и тип пароля"""
+    if not isinstance(password, str) or len(password) < MIN_PASSWORD_LENGTH:
+        raise ValueError(f"Пароль должен быть не короче {MIN_PASSWORD_LENGTH} символов")
+
+    return password
+
+
+def _validate_registration_date(value: object) -> datetime:
+    """Проверить дату регистрации"""
+    if not isinstance(value, datetime):
+        raise ValueError("Некорректная дата регистрации")
+
+    return value
+
+
+def _hash_password(password: str, salt: str) -> str:
+    """Получить хеш пароля с солью"""
+    return hashlib.sha256((password + salt).encode("utf-8")).hexdigest()
+
+
+def _verify_password(
+    password: object,
+    salt: str,
+    hashed_password: str,
+) -> bool:
+    """Проверить соответствие пароля хешу"""
+    if not isinstance(password, str):
+        return False
+
+    candidate = _hash_password(password, salt)
+    return hmac.compare_digest(candidate, hashed_password)
+
+
 class User:
     """Пользователь системы"""
 
@@ -29,35 +80,26 @@ class User:
         salt: str,
         registration_date: datetime,
     ):
-        if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id <= 0:
-            raise ValueError("user_id должен быть положительным целым числом")
-
-        self._user_id = user_id
-        self.username = username
-
-        if not isinstance(hashed_password, str) or not hashed_password:
-            raise ValueError("Хеш пароля не может быть пустым")
-        if not isinstance(salt, str) or not salt:
-            raise ValueError("Соль не может быть пустой")
-        if not isinstance(registration_date, datetime):
-            raise ValueError("Некорректная дата регистрации")
-
-        self._hashed_password = hashed_password
-        self._salt = salt
-        self._registration_date = registration_date
+        self._user_id = _validate_user_id(user_id)
+        self._username = _validate_nonempty_string(username, "Имя пользователя")
+        self._hashed_password = _validate_nonempty_string(hashed_password, "Хеш пароля")
+        self._salt = _validate_nonempty_string(salt, "Соль")
+        self._registration_date = _validate_registration_date(registration_date)
 
     @classmethod
-    def create(cls, user_id: int, username: str, password: str) -> "User":
+    def create(cls, user_id: int, username: str, password: str) -> Self:
         """Создать пользователя с уникальной солью"""
-        user = cls(
+        validated_password = _validate_password(password)
+        salt = secrets.token_hex(16)
+        hashed_password = _hash_password(validated_password, salt)
+
+        return cls(
             user_id,
             username,
-            "pending",
-            secrets.token_hex(16),
+            hashed_password,
+            salt,
             utc_now(),
         )
-        user.change_password(password)
-        return user
 
     @property
     def user_id(self) -> int:
@@ -71,9 +113,7 @@ class User:
 
     @username.setter
     def username(self, value: str) -> None:
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError("Имя пользователя не может быть пустым")
-        self._username = value.strip()
+        self._username = _validate_nonempty_string(value, "Имя пользователя")
 
     @property
     def hashed_password(self) -> str:
@@ -90,8 +130,8 @@ class User:
         """Получить дату регистрации"""
         return self._registration_date
 
-    def get_user_info(self) -> dict:
-        """Информация без пароля"""
+    def get_user_info(self) -> dict[str, int | str]:
+        """Получить информацию без пароля"""
         return {
             "user_id": self.user_id,
             "username": self.username,
@@ -100,30 +140,18 @@ class User:
 
     def change_password(self, new_password: str) -> None:
         """Изменить пароль с хешированием"""
-        if (
-            not isinstance(new_password, str)
-            or len(new_password) < MIN_PASSWORD_LENGTH
-        ):
-            raise ValueError(
-                f"Пароль должен быть не короче {MIN_PASSWORD_LENGTH} символов"
-            )
-
-        self._hashed_password = hashlib.sha256(
-            (new_password + self._salt).encode("utf-8")
-        ).hexdigest()
+        validated_password = _validate_password(new_password)
+        self._hashed_password = _hash_password(validated_password, self._salt)
 
     def verify_password(self, password: str) -> bool:
         """Проверить пароль"""
-        if not isinstance(password, str):
-            return False
+        return _verify_password(
+            password,
+            self._salt,
+            self._hashed_password,
+        )
 
-        candidate = hashlib.sha256(
-            (password + self._salt).encode("utf-8")
-        ).hexdigest()
-
-        return hmac.compare_digest(candidate, self._hashed_password)
-
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, int | str]:
         """Подготовить запись для JSON"""
         return {
             **self.get_user_info(),
@@ -132,7 +160,7 @@ class User:
         }
 
     @classmethod
-    def from_dict(cls, row: dict) -> "User":
+    def from_dict(cls, row: dict[str, Any]) -> Self:
         """Загрузить пользователя из JSON"""
         return cls(
             row["user_id"],
@@ -144,7 +172,7 @@ class User:
 
 
 class Wallet:
-    """Кошелёк одной валюты"""
+    """Кошелек одной валюты"""
 
     def __init__(
         self,
@@ -184,7 +212,7 @@ class Wallet:
         """Получить строку баланса"""
         return f"{self.currency_code}: {self.balance:.4f}"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, str | float]:
         """Подготовить JSON-представление"""
         return {
             "currency_code": self.currency_code,
@@ -192,8 +220,7 @@ class Wallet:
         }
 
 
-# Фиксированные курсы для проверки модели.
-DEMO_USD_RATES = {
+DEMO_USD_RATES: dict[str, float] = {
     "USD": 1.0,
     "EUR": 1.08,
     "GBP": 1.30,
@@ -204,6 +231,22 @@ DEMO_USD_RATES = {
 }
 
 
+def _validate_user(value: object) -> User:
+    """Проверить объект пользователя"""
+    if not isinstance(value, User):
+        raise TypeError("Портфелю требуется объект User")
+
+    return value
+
+
+def _validate_wallet(code: str, value: object) -> Wallet:
+    """Проверить кошелек и соответствие кода валюты"""
+    if not isinstance(value, Wallet) or value.currency_code != code:
+        raise ValueError("Ключ и валюта кошелька должны совпадать")
+
+    return value
+
+
 class Portfolio:
     """Портфель пользователя"""
 
@@ -212,18 +255,12 @@ class Portfolio:
         user: User,
         wallets: dict[str, Wallet] | None = None,
     ):
-        if not isinstance(user, User):
-            raise TypeError("Портфелю требуется объект User")
-
-        self._user = user
-        self._user_id = user.user_id
+        self._user = _validate_user(user)
+        self._user_id = self._user.user_id
         self._wallets: dict[str, Wallet] = {}
 
         for code, wallet in (wallets or {}).items():
-            if not isinstance(wallet, Wallet) or wallet.currency_code != code:
-                raise ValueError("Ключ и валюта кошелька должны совпадать")
-
-            self._wallets[code] = wallet
+            self._wallets[code] = _validate_wallet(code, wallet)
 
     @property
     def user(self) -> User:
@@ -236,7 +273,7 @@ class Portfolio:
         return self._wallets.copy()
 
     def add_currency(self, currency_code: str) -> Wallet:
-        """Добавить валюту, если кошелька ещё нет"""
+        """Добавить валюту, если кошелька еще нет"""
         get_currency(currency_code)
 
         if currency_code not in self._wallets:
@@ -245,7 +282,7 @@ class Portfolio:
         return self._wallets[currency_code]
 
     def get_wallet(self, currency_code: str) -> Wallet | None:
-        """Найти кошелёк"""
+        """Найти кошелек"""
         get_currency(currency_code)
         return self._wallets.get(currency_code)
 
@@ -258,28 +295,28 @@ class Portfolio:
         get_currency(base_currency)
 
         def demo_rate(from_code: str, to_code: str) -> float:
+            """Получить учебный обменный курс"""
             return DEMO_USD_RATES[from_code] / DEMO_USD_RATES[to_code]
 
-        provider = rate_provider or demo_rate
+        provider = rate_provider if rate_provider is not None else demo_rate
 
         return sum(
             wallet.balance * provider(code, base_currency)
             for code, wallet in self._wallets.items()
-            if wallet.balance
+            if wallet.balance > 0
         )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Преобразовать портфель в JSON"""
         return {
             "user_id": self._user_id,
             "wallets": {
-                code: wallet.to_dict()
-                for code, wallet in self._wallets.items()
+                code: wallet.to_dict() for code, wallet in self._wallets.items()
             },
         }
 
     @classmethod
-    def from_dict(cls, user: User, row: dict) -> "Portfolio":
+    def from_dict(cls, user: User, row: dict[str, Any]) -> Self:
         """Загрузить портфель из JSON"""
         if row["user_id"] != user.user_id:
             raise ValueError("Портфель принадлежит другому пользователю")

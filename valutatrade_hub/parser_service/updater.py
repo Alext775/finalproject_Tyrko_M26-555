@@ -1,6 +1,7 @@
 """Сервис обновления курсов валют"""
 
 import logging
+from typing import Self, TypedDict
 
 from valutatrade_hub.core.exceptions import ApiRequestError
 from valutatrade_hub.core.utils import to_utc_iso
@@ -10,12 +11,20 @@ from valutatrade_hub.parser_service.api_clients import (
     ExchangeRateApiClient,
 )
 from valutatrade_hub.parser_service.config import ParserConfig
-from valutatrade_hub.parser_service.storage import RatesStorage
+from valutatrade_hub.parser_service.storage import RateEntry, RatesStorage
 
 SOURCE_NAMES = {
     "coingecko": "CoinGecko",
     "exchangerate": "ExchangeRate-API",
 }
+
+
+class UpdateResult(TypedDict):
+    """Результат обновления курсов"""
+
+    updated: int
+    failures: dict[str, str]
+    last_refresh: str
 
 
 class RatesUpdater:
@@ -31,7 +40,7 @@ class RatesUpdater:
         self.logger = logging.getLogger("valutatrade.parser")
 
     @classmethod
-    def create_default(cls) -> "RatesUpdater":
+    def create_default(cls) -> Self:
         """Создать обновлятор с двумя источниками"""
         config = ParserConfig()
 
@@ -46,27 +55,23 @@ class RatesUpdater:
     def run_update(
         self,
         source: str | None = None,
-    ) -> dict:
+    ) -> UpdateResult:
         """Загрузить новые курсы и сохранить их"""
         if source is not None and source not in SOURCE_NAMES:
-            raise ValueError(
-                "Источник: coingecko или exchangerate"
-            )
+            raise ValueError("Источник: coingecko или exchangerate")
 
-        selected = (
-            [
-                client
-                for client in self.clients
-                if client.source == SOURCE_NAMES[source]
+        if source is None:
+            selected = self.clients
+        else:
+            source_name = SOURCE_NAMES[source]
+            selected = [
+                client for client in self.clients if client.source == source_name
             ]
-            if source
-            else self.clients
-        )
 
         if not selected:
             raise ValueError("Не найден выбранный источник")
 
-        updates: dict[str, dict] = {}
+        updates: dict[str, RateEntry] = {}
         failures: dict[str, str] = {}
 
         self.logger.info("Начало обновления курсов")
@@ -76,9 +81,7 @@ class RatesUpdater:
                 rates = client.fetch_rates()
 
                 if not rates:
-                    raise ApiRequestError(
-                        "Сервис вернул пустой набор курсов"
-                    )
+                    raise ApiRequestError("Сервис вернул пустой набор курсов")
 
                 received_at = to_utc_iso()
 
@@ -105,10 +108,9 @@ class RatesUpdater:
                 )
 
         if not updates:
-            raise ApiRequestError(
-                "Все источники недоступны: "
-                + "; ".join(failures.values())
-            )
+            details = "; ".join(failures.values())
+
+            raise ApiRequestError(f"Все источники недоступны: {details}")
 
         timestamp = to_utc_iso()
 

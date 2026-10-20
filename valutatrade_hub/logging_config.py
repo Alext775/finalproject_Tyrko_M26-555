@@ -1,7 +1,7 @@
 """Настройка логирования и ротации файлов"""
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 
 from valutatrade_hub.infra.settings import SettingsLoader
@@ -21,7 +21,7 @@ class IsoFormatter(logging.Formatter):
         """Преобразовать timestamp"""
         return datetime.fromtimestamp(
             record.created,
-            timezone.utc,
+            UTC,
         ).isoformat()
 
 
@@ -39,10 +39,7 @@ def configure_logging() -> None:
         logger.setLevel(settings.get("log_level", "INFO"))
         logger.propagate = False
 
-        if any(
-            isinstance(h, RotatingFileHandler)
-            for h in logger.handlers
-        ):
+        if any(isinstance(h, RotatingFileHandler) for h in logger.handlers):
             continue
 
         handler = RotatingFileHandler(
@@ -52,8 +49,6 @@ def configure_logging() -> None:
             encoding="utf-8",
         )
 
-        handler.setFormatter(
-            IsoFormatter("%(levelname)s %(asctime)s %(message)s")
-        )
+        handler.setFormatter(IsoFormatter("%(levelname)s %(asctime)s %(message)s"))
 
         logger.addHandler(handler)

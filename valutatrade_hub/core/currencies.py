@@ -7,14 +7,32 @@ from valutatrade_hub.core.exceptions import CurrencyNotFoundError
 from valutatrade_hub.core.utils import validate_currency_code
 
 
+def _validate_nonempty_string(value: object, field_name: str) -> str:
+    """Проверить непустую строку"""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} не может быть пустым")
+
+    return value.strip()
+
+
+def _validate_market_cap(value: object) -> float:
+    """Проверить рыночную капитализацию"""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value < 0
+    ):
+        raise ValueError("Капитализация не может быть отрицательной")
+
+    return float(value)
+
+
 class Currency(ABC):
     """Абстрактный базовый класс валюты"""
 
     def __init__(self, name: str, code: str):
-        if not isinstance(name, str) or not name.strip():
-            raise ValueError("Имя валюты не может быть пустым")
-
-        self.name = name.strip()
+        self.name = _validate_nonempty_string(name, "Имя валюты")
         self.code = validate_currency_code(code)
 
     @abstractmethod
@@ -32,18 +50,13 @@ class FiatCurrency(Currency):
         issuing_country: str,
     ):
         super().__init__(name, code)
-
-        if not isinstance(issuing_country, str) or not issuing_country.strip():
-            raise ValueError("Страна эмиссии не может быть пустой")
-
-        self.issuing_country = issuing_country.strip()
+        self.issuing_country = _validate_nonempty_string(
+            issuing_country, "Страна эмиссии"
+        )
 
     def get_display_info(self) -> str:
         """Информация о фиатной валюте"""
-        return (
-            f"[FIAT] {self.code} — {self.name} "
-            f"(Issuing: {self.issuing_country})"
-        )
+        return f"[FIAT] {self.code} — {self.name} (Issuing: {self.issuing_country})"
 
 
 class CryptoCurrency(Currency):
@@ -57,28 +70,15 @@ class CryptoCurrency(Currency):
         market_cap: float,
     ):
         super().__init__(name, code)
-
-        if not isinstance(algorithm, str) or not algorithm.strip():
-            raise ValueError("Алгоритм не может быть пустым")
-
-        if (
-            isinstance(market_cap, bool)
-            or not isinstance(market_cap, (int, float))
-            or not math.isfinite(market_cap)
-            or market_cap < 0
-        ):
-            raise ValueError("Капитализация не может быть отрицательной")
-
-        self.algorithm = algorithm.strip()
-        self.market_cap = float(market_cap)
+        self.algorithm = _validate_nonempty_string(algorithm, "Алгоритм")
+        self.market_cap = _validate_market_cap(market_cap)
 
     def get_display_info(self) -> str:
         """Информация о криптовалюте"""
         cap = format(self.market_cap, ".2e").replace("e+", "e")
 
         return (
-            f"[CRYPTO] {self.code} — {self.name} "
-            f"(Algo: {self.algorithm}, MCAP: {cap})"
+            f"[CRYPTO] {self.code} — {self.name} (Algo: {self.algorithm}, MCAP: {cap})"
         )
 
 

@@ -15,17 +15,16 @@ def run_scheduler(
 ) -> None:
     """Периодически обновлять курсы"""
     if interval_seconds <= 0:
-        raise ValueError(
-            "Интервал должен быть положительным"
-        )
+        raise ValueError("Интервал должен быть положительным")
 
     configure_logging()
     logger = logging.getLogger("valutatrade.parser")
+    updater = RatesUpdater.create_default()
 
     try:
         while True:
             try:
-                RatesUpdater.create_default().run_update()
+                updater.run_update()
 
             except ApiRequestError as exc:
                 logger.error(

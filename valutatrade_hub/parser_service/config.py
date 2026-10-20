@@ -36,9 +36,7 @@ class ParserConfig:
     fiat_currencies: tuple[str, ...] = FIAT_CURRENCIES
     crypto_currencies: tuple[str, ...] = CRYPTO_CURRENCIES
 
-    crypto_id_map: dict[str, str] = field(
-        default_factory=lambda: CRYPTO_ID_MAP.copy()
-    )
+    crypto_id_map: dict[str, str] = field(default_factory=lambda: CRYPTO_ID_MAP.copy())
 
     request_timeout: int = REQUEST_TIMEOUT
 

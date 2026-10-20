@@ -2,6 +2,7 @@
 
 import argparse
 import shlex
+from typing import NoReturn, TypedDict, cast
 
 from prettytable import PrettyTable
 
@@ -9,77 +10,130 @@ from valutatrade_hub.core.currencies import CURRENCY_REGISTRY
 from valutatrade_hub.core.exceptions import (
     ApiRequestError,
     CurrencyNotFoundError,
-    InsufficientFundsError,
 )
 from valutatrade_hub.core.usecases import UseCases
 from valutatrade_hub.logging_config import configure_logging
 from valutatrade_hub.parser_service.updater import RatesUpdater
 
 
+class PortfolioRow(TypedDict):
+    """Строка таблицы портфеля"""
+
+    code: str
+    balance: float
+    value: float
+
+
+class RateRow(TypedDict):
+    """Строка таблицы курсов"""
+
+    pair: str
+    rate: float
+    updated_at: str
+
+
 class CliArgumentParser(argparse.ArgumentParser):
     """Обработка неправильных аргументов"""
 
-    def error(self, message: str) -> None:
+    def error(self, message: str) -> NoReturn:
         """Вызвать исключение вместо завершения программы"""
-        raise ValueError(
-            f"Неверные аргументы: {message}"
-        )
+        raise ValueError(f"Неверные аргументы: {message}")
 
 
 def make_parsers() -> dict[str, CliArgumentParser]:
     """Создать парсеры для команд"""
-    definitions = {
-        "register": (
-            ("--username", {"required": True}),
-            ("--password", {"required": True}),
-        ),
-        "login": (
-            ("--username", {"required": True}),
-            ("--password", {"required": True}),
-        ),
-        "deposit": (
-            ("--amount", {"required": True, "type": float}),
-        ),
-        "show-portfolio": (
-            ("--base", {"default": "USD"}),
-        ),
-        "buy": (
-            ("--currency", {"required": True}),
-            ("--amount", {"required": True, "type": float}),
-        ),
-        "sell": (
-            ("--currency", {"required": True}),
-            ("--amount", {"required": True, "type": float}),
-        ),
-        "get-rate": (
-            ("--from", {"dest": "from_code", "required": True}),
-            ("--to", {"dest": "to_code", "required": True}),
-        ),
-        "update-rates": (
-            (
-                "--source",
-                {"choices": ["coingecko", "exchangerate"]},
-            ),
-        ),
-        "show-rates": (
-            ("--currency", {}),
-            ("--top", {"type": int}),
-            ("--base", {"default": "USD"}),
-        ),
-    }
+    parsers: dict[str, CliArgumentParser] = {}
 
-    parsers = {}
+    register = CliArgumentParser(
+        prog="register",
+        add_help=False,
+    )
+    register.add_argument("--username", required=True)
+    register.add_argument("--password", required=True)
+    parsers["register"] = register
 
-    for name, arguments in definitions.items():
+    login = CliArgumentParser(
+        prog="login",
+        add_help=False,
+    )
+    login.add_argument("--username", required=True)
+    login.add_argument("--password", required=True)
+    parsers["login"] = login
+
+    deposit = CliArgumentParser(
+        prog="deposit",
+        add_help=False,
+    )
+    deposit.add_argument(
+        "--amount",
+        required=True,
+        type=float,
+    )
+    parsers["deposit"] = deposit
+
+    show_portfolio = CliArgumentParser(
+        prog="show-portfolio",
+        add_help=False,
+    )
+    show_portfolio.add_argument(
+        "--base",
+        default="USD",
+    )
+    parsers["show-portfolio"] = show_portfolio
+
+    for command in ("buy", "sell"):
         parser = CliArgumentParser(
-            prog=name,
+            prog=command,
             add_help=False,
         )
+        parser.add_argument(
+            "--currency",
+            required=True,
+        )
+        parser.add_argument(
+            "--amount",
+            required=True,
+            type=float,
+        )
+        parsers[command] = parser
 
-        for flag, options in arguments:
-            parser.add_argument(flag, **options)
+    get_rate = CliArgumentParser(
+        prog="get-rate",
+        add_help=False,
+    )
+    get_rate.add_argument(
+        "--from",
+        dest="from_code",
+        required=True,
+    )
+    get_rate.add_argument(
+        "--to",
+        dest="to_code",
+        required=True,
+    )
+    parsers["get-rate"] = get_rate
 
-        parsers[name] = parser
+    update_rates = CliArgumentParser(
+        prog="update-rates",
+        add_help=False,
+    )
+    update_rates.add_argument(
+        "--source",
+        choices=("coingecko", "exchangerate"),
+    )
+    parsers["update-rates"] = update_rates
+
+    show_rates = CliArgumentParser(
+        prog="show-rates",
+        add_help=False,
+    )
+    show_rates.add_argument("--currency")
+    show_rates.add_argument("--top", type=int)
+    show_rates.add_argument(
+        "--base",
+        default="USD",
+    )
+    parsers["show-rates"] = show_rates
 
     return parsers
 
@@ -91,12 +145,12 @@ class WalletCLI:
         self,
         usecases: UseCases | None = None,
     ) -> None:
-        self.usecases = usecases or UseCases()
+        self.usecases = usecases if usecases is not None else UseCases()
         self.user_id: int | None = None
         self.parsers = make_parsers()
 
     def _require_login(self) -> int:
-        """Убедиться, что пользователь вошел в систему"""
+        """Проверить авторизацию пользователя"""
         if self.user_id is None:
             raise ValueError("Сначала выполните login")
 
@@ -118,7 +172,7 @@ class WalletCLI:
 
     def help(self, command: str | None = None) -> None:
         """Показать список команд"""
-        if command:
+        if command is not None:
             parser = self.parsers.get(command)
 
             if parser is None:
@@ -130,13 +184,10 @@ class WalletCLI:
 
         print("Команды: " + ", ".join(self.parsers))
         print("Дополнительно: help [команда], logout, exit")
-        print(
-            "Поддерживаемые валюты: "
-            + ", ".join(CURRENCY_REGISTRY)
-        )
+        print("Поддерживаемые валюты: " + ", ".join(CURRENCY_REGISTRY))
 
     def execute(self, line: str) -> bool:
-        """Выполнить одну команду"""
+        """Выполнить одну пользовательскую команду"""
         if not line.strip():
             return True
 
@@ -146,25 +197,21 @@ class WalletCLI:
 
             if command == "exit":
                 if tokens:
-                    raise ValueError(
-                        "exit не принимает аргументы"
-                    )
+                    raise ValueError("exit не принимает аргументы")
+
                 return False
 
             if command == "help":
                 if len(tokens) > 1:
-                    raise ValueError(
-                        "Формат: help [команда]"
-                    )
+                    raise ValueError("Формат: help [команда]")
 
-                self.help(tokens[0] if tokens else None)
+                selected = tokens[0] if tokens else None
+                self.help(selected)
                 return True
 
             if command == "logout":
                 if tokens:
-                    raise ValueError(
-                        "logout не принимает аргументы"
-                    )
+                    raise ValueError("logout не принимает аргументы")
 
                 self.user_id = None
                 print("Вы вышли из системы")
@@ -173,33 +220,19 @@ class WalletCLI:
             parser = self.parsers.get(command)
 
             if parser is None:
-                raise ValueError(
-                    f"Неизвестная команда '{command}'. Введите help"
-                )
+                raise ValueError(f"Неизвестная команда '{command}'. Введите help")
 
             arguments = parser.parse_args(tokens)
             self._dispatch(command, arguments)
 
-        except (
-            ValueError,
-            OSError,
-            ApiRequestError,
-            CurrencyNotFoundError,
-            InsufficientFundsError,
-        ) as exc:
+        except (ValueError, OSError, ApiRequestError) as exc:
             print(f"Ошибка: {exc}")
 
             if isinstance(exc, CurrencyNotFoundError):
-                print(
-                    "Доступные коды: "
-                    + ", ".join(CURRENCY_REGISTRY)
-                )
+                print("Доступные коды: " + ", ".join(CURRENCY_REGISTRY))
 
             elif isinstance(exc, ApiRequestError):
-                print(
-                    "Проверьте сеть или повторите "
-                    "update-rates позже"
-                )
+                print("Проверьте сеть или повторите update-rates позже")
 
         return True
 
@@ -208,7 +241,7 @@ class WalletCLI:
         command: str,
         args: argparse.Namespace,
     ) -> None:
-        """Вызвать нужную бизнес-операцию"""
+        """Вызвать соответствующую бизнес-операцию"""
         service = self.usecases
 
         if command == "register":
@@ -230,7 +263,7 @@ class WalletCLI:
                 args.password,
             )
 
-            self.user_id = result["user_id"]
+            self.user_id = int(result["user_id"])
             print(f"Вы вошли как '{result['username']}'")
 
         elif command == "deposit":
@@ -239,11 +272,7 @@ class WalletCLI:
                 args.amount,
             )
 
-            print(
-                f"USD пополнен: "
-                f"{result['before']:.2f} → "
-                f"{result['after']:.2f} USD"
-            )
+            print(f"USD пополнен: {result['before']:.2f} → {result['after']:.2f} USD")
 
         elif command == "show-portfolio":
             result = service.show_portfolio(
@@ -251,15 +280,26 @@ class WalletCLI:
                 args.base,
             )
 
-            print(
-                f"Портфель '{result['username']}' "
-                f"(база: {result['base']}):"
+            print(f"Портфель '{result['username']}' (база: {result['base']}):")
+
+            portfolio_rows = cast(
+                list[PortfolioRow],
+                result["wallets"],
             )
 
-            if not result["wallets"]:
+            if not portfolio_rows:
                 print("Кошельков пока нет")
 
             else:
+                table_rows: list[list[str]] = [
+                    [
+                        row["code"],
+                        f"{row['balance']:.4f}",
+                        f"{row['value']:,.2f}",
+                    ]
+                    for row in portfolio_rows
+                ]
+
                 print(
                     self._format_table(
                         [
@@ -267,69 +307,43 @@ class WalletCLI:
                             "Баланс",
                             f"Стоимость ({result['base']})",
                         ],
-                        [
-                            [
-                                row["code"],
-                                f"{row['balance']:.4f}",
-                                f"{row['value']:,.2f}",
-                            ]
-                            for row in result["wallets"]
-                        ],
+                        table_rows,
                     )
                 )
 
-            print(
-                f"ИТОГО: {result['total']:,.2f} "
-                f"{result['base']}"
-            )
+            print(f"ИТОГО: {result['total']:,.2f} {result['base']}")
 
         elif command in ("buy", "sell"):
-            operation = (
-                service.buy
-                if command == "buy"
-                else service.sell
-            )
+            if command == "buy":
+                result = service.buy(
+                    self._require_login(),
+                    args.currency,
+                    args.amount,
+                )
+                operation_name = "Покупка"
+                value_key = "cost"
 
-            result = operation(
-                self._require_login(),
-                args.currency,
-                args.amount,
-            )
-
-            name = (
-                "Покупка"
-                if command == "buy"
-                else "Продажа"
-            )
-
-            key = (
-                "cost"
-                if command == "buy"
-                else "revenue"
-            )
+            else:
+                result = service.sell(
+                    self._require_login(),
+                    args.currency,
+                    args.amount,
+                )
+                operation_name = "Продажа"
+                value_key = "revenue"
 
             print(
-                f"{name} выполнена: "
+                f"{operation_name} выполнена: "
                 f"{result['amount']:.4f} {result['code']} "
                 f"по курсу {result['rate']:.6f} "
                 f"USD/{result['code']}"
             )
 
-            print(
-                f"{result['code']}: "
-                f"{result['before']:.4f} → "
-                f"{result['after']:.4f}"
-            )
+            print(f"{result['code']}: {result['before']:.4f} → {result['after']:.4f}")
 
-            print(
-                f"USD: {result['usd_before']:.2f} → "
-                f"{result['usd_after']:.2f}"
-            )
+            print(f"USD: {result['usd_before']:.2f} → {result['usd_after']:.2f}")
 
-            print(
-                f"Стоимость / выручка: "
-                f"{result[key]:,.2f} USD"
-            )
+            print(f"Стоимость / выручка: {result[value_key]:,.2f} USD")
 
         elif command == "get-rate":
             result = service.get_rate(
@@ -343,26 +357,16 @@ class WalletCLI:
                 f"(обновлено: {result['updated_at']})"
             )
 
-            print(
-                f"Обратный курс "
-                f"{args.to_code}→{args.from_code}: "
-                f"{1 / result['rate']:.8f}"
-            )
+            reverse_rate = 1.0 / result["rate"]
+
+            print(f"Обратный курс {args.to_code}→{args.from_code}: {reverse_rate:.8f}")
 
         elif command == "update-rates":
-            result = (
-                RatesUpdater.create_default()
-                .run_update(args.source)
-            )
+            updater = RatesUpdater.create_default()
+            result = updater.run_update(args.source)
 
-            print(
-                f"Обновлено курсов: {result['updated']}"
-            )
-
-            print(
-                f"Последнее обновление: "
-                f"{result['last_refresh']}"
-            )
+            print(f"Обновлено курсов: {result['updated']}")
+            print(f"Последнее обновление: {result['last_refresh']}")
 
             if result["failures"]:
                 print("Частичные ошибки:")
@@ -377,31 +381,32 @@ class WalletCLI:
                 args.base,
             )
 
-            print(
-                f"Курсы из кеша "
-                f"(обновление: {result['last_refresh']}):"
+            print(f"Курсы из кеша (обновление: {result['last_refresh']}):")
+
+            rate_rows = cast(
+                list[RateRow],
+                result["rows"],
             )
+
+            table_rows: list[list[str]] = [
+                [
+                    row["pair"],
+                    f"{row['rate']:.8f}",
+                    row["updated_at"],
+                ]
+                for row in rate_rows
+            ]
 
             print(
                 self._format_table(
                     ["Пара", "Курс", "Время UTC"],
-                    [
-                        [
-                            row["pair"],
-                            f"{row['rate']:.8f}",
-                            row["updated_at"],
-                        ]
-                        for row in result["rows"]
-                    ],
+                    table_rows,
                 )
             )
 
     def run(self) -> None:
-        """Запустить цикл команд"""
-        print(
-            "ValutaTrade Hub. "
-            "Введите help для списка команд."
-        )
+        """Запустить цикл пользовательских команд"""
+        print("ValutaTrade Hub. Введите help для списка команд.")
 
         while True:
             try:

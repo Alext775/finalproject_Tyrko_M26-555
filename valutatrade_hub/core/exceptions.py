@@ -1,5 +1,6 @@
 """Пользовательские исключения"""
 
+
 class InsufficientFundsError(ValueError):
     """Недостаточно денег на балансе"""
 
@@ -26,6 +27,4 @@ class ApiRequestError(RuntimeError):
     """Ошибка при получении курсов валют"""
 
     def __init__(self, reason: str):
-        super().__init__(
-            f"Ошибка при обращении к внешнему API: {reason}"
-        )
+        super().__init__(f"Ошибка при обращении к внешнему API: {reason}")

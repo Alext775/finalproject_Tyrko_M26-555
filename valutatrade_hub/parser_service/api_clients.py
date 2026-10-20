@@ -1,31 +1,32 @@
 """Клиенты CoinGecko и ExchangeRate-API"""
 
-import math
 from abc import ABC, abstractmethod
+from typing import cast
 
 import requests
 
 from valutatrade_hub.core.exceptions import ApiRequestError
+from valutatrade_hub.core.utils import validate_positive_amount
 from valutatrade_hub.parser_service.config import ParserConfig
 
 
 def _network_error(
     provider: str,
     exc: requests.RequestException,
-    response: object,
+    response: requests.Response | None,
 ) -> ApiRequestError:
     """Подготовить сообщение о сетевой ошибке"""
-    status = getattr(response, "status_code", None)
+    status = response.status_code if response is not None else None
 
     if status == 429:
         reason = "лимит запросов (429), повторите позже"
+
     elif status in (401, 403):
-        reason = (
-            f"авторизация запрещена (HTTP {status}), "
-            "проверьте ключ"
-        )
+        reason = f"авторизация запрещена (HTTP {status}), проверьте ключ"
+
     elif status is not None:
         reason = f"HTTP {status}"
+
     else:
         reason = f"ошибка сети ({type(exc).__name__})"
 
@@ -34,17 +35,11 @@ def _network_error(
 
 def _positive_rate(value: object, code: str) -> float:
     """Проверить полученный курс"""
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(value)
-        or value <= 0
-    ):
-        raise ApiRequestError(
-            f"Некорректный курс {code}: {value!r}"
-        )
+    try:
+        return validate_positive_amount(value)
 
-    return float(value)
+    except ValueError as exc:
+        raise ApiRequestError(f"Некорректный курс {code}: {value!r}") from exc
 
 
 class BaseApiClient(ABC):
@@ -66,62 +61,59 @@ class CoinGeckoClient(BaseApiClient):
         self,
         config: ParserConfig | None = None,
     ) -> None:
-        self.config = config or ParserConfig()
+        self.config = config if config is not None else ParserConfig()
 
     def fetch_rates(self) -> dict[str, float]:
-        """Получить курсы BTC, ETH, SOL"""
+        """Получить курсы криптовалют"""
         config = self.config
 
-        ids = [
-            config.crypto_id_map[code]
-            for code in config.crypto_currencies
-        ]
+        crypto_ids = [config.crypto_id_map[code] for code in config.crypto_currencies]
 
-        response = None
+        response: requests.Response | None = None
 
         try:
             response = requests.get(
                 config.coingecko_url,
                 params={
-                    "ids": ",".join(ids),
+                    "ids": ",".join(crypto_ids),
                     "vs_currencies": "usd",
                 },
                 timeout=config.request_timeout,
             )
 
             response.raise_for_status()
-            payload = response.json()
+            payload: object = response.json()
 
         except requests.RequestException as exc:
             raise _network_error(
-                "CoinGecko",
+                self.source,
                 exc,
                 response,
             ) from exc
 
         except ValueError as exc:
-            raise ApiRequestError(
-                "CoinGecko: некорректный JSON"
-            ) from exc
+            raise ApiRequestError("CoinGecko: некорректный JSON") from exc
 
         if not isinstance(payload, dict):
-            raise ApiRequestError(
-                "CoinGecko: неверный формат JSON"
-            )
+            raise ApiRequestError("CoinGecko: неверный формат JSON")
 
-        rates = {}
+        data = cast(dict[str, object], payload)
+        rates: dict[str, float] = {}
 
         for code in config.crypto_currencies:
             raw_id = config.crypto_id_map[code]
-            item = payload.get(raw_id)
+            item = data.get(raw_id)
 
-            if not isinstance(item, dict) or "usd" not in item:
-                raise ApiRequestError(
-                    f"CoinGecko: отсутствует курс {code}"
-                )
+            if not isinstance(item, dict):
+                raise ApiRequestError(f"CoinGecko: отсутствует курс {code}")
+
+            currency_data = cast(dict[str, object], item)
+
+            if "usd" not in currency_data:
+                raise ApiRequestError(f"CoinGecko: отсутствует курс {code}")
 
             rates[f"{code}_USD"] = _positive_rate(
-                item["usd"],
+                currency_data["usd"],
                 code,
             )
 
@@ -137,16 +129,14 @@ class ExchangeRateApiClient(BaseApiClient):
         self,
         config: ParserConfig | None = None,
     ) -> None:
-        self.config = config or ParserConfig()
+        self.config = config if config is not None else ParserConfig()
 
     def fetch_rates(self) -> dict[str, float]:
-        """Получить курсы EUR, GBP, RUB к USD"""
+        """Получить курсы фиатных валют к базовой валюте"""
         config = self.config
 
         if not config.exchangerate_api_key:
-            raise ApiRequestError(
-                "Не задан EXCHANGERATE_API_KEY"
-            )
+            raise ApiRequestError("Не задан EXCHANGERATE_API_KEY")
 
         url = (
             f"{config.exchangerate_api_url}/"
@@ -154,7 +144,7 @@ class ExchangeRateApiClient(BaseApiClient):
             f"latest/{config.base_currency}"
         )
 
-        response = None
+        response: requests.Response | None = None
 
         try:
             response = requests.get(
@@ -163,53 +153,43 @@ class ExchangeRateApiClient(BaseApiClient):
             )
 
             response.raise_for_status()
-            payload = response.json()
+            payload: object = response.json()
 
         except requests.RequestException as exc:
             raise _network_error(
-                "ExchangeRate-API",
+                self.source,
                 exc,
                 response,
             ) from exc
 
         except ValueError as exc:
-            raise ApiRequestError(
-                "ExchangeRate-API: некорректный JSON"
-            ) from exc
+            raise ApiRequestError("ExchangeRate-API: некорректный JSON") from exc
 
-        if (
-            not isinstance(payload, dict)
-            or payload.get("result") != "success"
-        ):
-            reason = (
-                payload.get("error-type", "неверный ответ")
-                if isinstance(payload, dict)
-                else "неверный формат JSON"
-            )
+        if not isinstance(payload, dict):
+            raise ApiRequestError("ExchangeRate-API: неверный формат JSON")
 
-            raise ApiRequestError(
-                f"ExchangeRate-API: {reason}"
-            )
+        data = cast(dict[str, object], payload)
 
-        conversion_rates = payload.get("conversion_rates")
+        if data.get("result") != "success":
+            reason = data.get("error-type", "неверный ответ")
+            raise ApiRequestError(f"ExchangeRate-API: {reason}")
 
-        if not isinstance(conversion_rates, dict):
-            raise ApiRequestError(
-                "ExchangeRate-API: отсутствует conversion_rates"
-            )
+        raw_rates = data.get("conversion_rates")
 
-        rates = {}
+        if not isinstance(raw_rates, dict):
+            raise ApiRequestError("ExchangeRate-API: отсутствует conversion_rates")
+
+        conversion_rates = cast(dict[str, object], raw_rates)
+        rates: dict[str, float] = {}
 
         for code in config.fiat_currencies:
-            usd_to_code = _positive_rate(
+            base_to_currency = _positive_rate(
                 conversion_rates.get(code),
                 code,
             )
 
-            # API возвращает USD -> EUR.
-            # Нам нужен обратный курс EUR -> USD.
-            rates[
-                f"{code}_{config.base_currency}"
-            ] = 1.0 / usd_to_code
+            # API возвращает курс базовой валюты к указанной
+            # Для хранения нужен обратный курс к базовой валюте
+            rates[f"{code}_{config.base_currency}"] = 1.0 / base_to_currency
 
         return rates

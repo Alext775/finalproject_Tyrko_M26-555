@@ -2,8 +2,9 @@
 
 from valutatrade_hub.core.utils import to_utc_iso
 from valutatrade_hub.infra.database import DatabaseManager
+from valutatrade_hub.parser_service.storage import RateEntry, RateSnapshot
 
-DEMO_RATES = {
+DEMO_RATES: dict[str, float] = {
     "BTC_USD": 60000.0,
     "ETH_USD": 3500.0,
     "SOL_USD": 150.0,
@@ -14,28 +15,29 @@ DEMO_RATES = {
 
 
 def main() -> None:
-    """Сохранить свежие курсы в JSON"""
+    """Сохранить свежие учебные курсы в JSON"""
     timestamp = to_utc_iso()
+
+    pairs: dict[str, RateEntry] = {
+        pair: {
+            "rate": rate,
+            "updated_at": timestamp,
+            "source": "Demo (not live)",
+        }
+        for pair, rate in DEMO_RATES.items()
+    }
+
+    snapshot: RateSnapshot = {
+        "pairs": pairs,
+        "last_refresh": timestamp,
+    }
 
     DatabaseManager().write_json(
         "rates_file",
-        {
-            "pairs": {
-                pair: {
-                    "rate": rate,
-                    "updated_at": timestamp,
-                    "source": "Demo (not live)",
-                }
-                for pair, rate in DEMO_RATES.items()
-            },
-            "last_refresh": timestamp,
-        },
+        snapshot,
     )
 
-    print(
-        "Добавлены учебные курсы "
-        "в data/rates.json (не реальные)."
-    )
+    print("Добавлены учебные курсы в data/rates.json (не реальные)")
 
 
 if __name__ == "__main__":

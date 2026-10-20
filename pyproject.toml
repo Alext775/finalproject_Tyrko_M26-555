@@ -1,0 +1,39 @@
+[project]
+name = "finalproject-tyrko-m26-555"
+version = "0.1.0"
+description = "ValutaTrade Hub — валютный кошелек"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "prettytable>=3.11,<4",
+    "requests>=2.32,<3",
+]
+
+[project.scripts]
+valutatrade = "valutatrade_hub.cli.interface:main"
+
+[dependency-groups]
+dev = ["ruff>=0.9,<1"]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["valutatrade_hub*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.valutatrade]
+data_dir = "data"
+logs_dir = "logs"
+rates_ttl_seconds = 300
+base_currency = "USD"
+log_level = "INFO"
+log_format = "text"

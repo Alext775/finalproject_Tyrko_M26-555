@@ -7,7 +7,9 @@ from getpass import getpass
 from pathlib import Path
 from typing import cast
 
-CREDENTIALS_DIR = Path.home() / ".valutatrade_hub"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+CREDENTIALS_DIR = PROJECT_ROOT / ".secrets"
 CREDENTIALS_FILE = CREDENTIALS_DIR / "credentials.json"
 
 API_KEY_ENV_NAME = "EXCHANGERATE_API_KEY"

@@ -102,7 +102,13 @@ def configure_api_key(force: bool = False) -> bool:
         return False
 
     if not key:
-        print("Ключ не задан. Будет доступен только CoinGecko")
+        if load_api_key() is not None:
+            print(
+                "Ввод пропущен. Предыдущий API-ключ сохранен и продолжит использоваться"
+            )
+            return True
+
+        print("API-ключ не задан. Будет доступен только CoinGecko")
         return False
 
     try:

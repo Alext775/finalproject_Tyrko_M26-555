@@ -13,3 +13,4 @@ logs/
 .coverage
 .DS_Store
 .secrets/
+data/

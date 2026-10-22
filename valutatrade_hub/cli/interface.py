@@ -12,6 +12,7 @@ from valutatrade_hub.core.exceptions import (
     CurrencyNotFoundError,
 )
 from valutatrade_hub.core.usecases import UseCases
+from valutatrade_hub.infra.database import DatabaseManager
 from valutatrade_hub.logging_config import configure_logging
 from valutatrade_hub.parser_service.credentials import (
     configure_api_key,
@@ -437,6 +438,8 @@ def main() -> None:
     """Главная точка входа CLI"""
     configure_logging()
 
+    DatabaseManager().initialize_files()
+
     print("Запуск ValutaTrade Hub")
 
     configure_api_key()
@@ -465,7 +468,10 @@ def main() -> None:
     scheduler.start()
 
     print("Автоматическое обновление курсов включено")
-    print("Интервал обновления: 5 минут")
+    print(
+        f"Интервал обновления: "
+        f"{scheduler.interval_seconds} сек."
+    )
 
     try:
         WalletCLI().run()

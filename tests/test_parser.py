@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import timedelta
 from pathlib import Path
 from typing import cast
 from unittest.mock import Mock, patch
@@ -20,6 +21,7 @@ from valutatrade_hub.parser_service.api_clients import (
 from valutatrade_hub.parser_service.config import ParserConfig
 from valutatrade_hub.parser_service.storage import (
     HistoryEntry,
+    RateEntry,
     RateSnapshot,
     RatesStorage,
 )
@@ -81,6 +83,51 @@ class ApiClientTests(unittest.TestCase):
 
         with self.assertRaises(ApiRequestError):
             CoinGeckoClient().fetch_rates()
+
+    @patch("valutatrade_hub.parser_service.api_clients.requests.get")
+    def test_invalid_crypto_rate(self, get: Mock) -> None:
+        """Проверить запрет отрицательного курса"""
+        get.return_value.json.return_value = {
+            "bitcoin": {"usd": -100},
+            "ethereum": {"usd": 3000},
+            "solana": {"usd": 100},
+        }
+
+        with self.assertRaisesRegex(
+            ApiRequestError,
+            "Некорректный курс",
+        ):
+            CoinGeckoClient().fetch_rates()
+
+
+    @patch("valutatrade_hub.parser_service.api_clients.requests.get")
+    def test_invalid_json(self, get: Mock) -> None:
+        """Проверить обработку неправильного JSON"""
+        get.return_value.json.side_effect = ValueError(
+            "Неверный JSON"
+        )
+
+        with self.assertRaisesRegex(
+            ApiRequestError,
+            "некорректный JSON",
+        ):
+            CoinGeckoClient().fetch_rates()
+
+
+    @patch("valutatrade_hub.parser_service.api_clients.requests.get")
+    def test_invalid_api_key(self, get: Mock) -> None:
+        """Проверить обработку HTTP 401"""
+        get.return_value.status_code = 401
+        get.return_value.raise_for_status.side_effect = (
+            requests.HTTPError("401")
+        )
+
+        config = ParserConfig(
+            exchangerate_api_key="invalid-key",
+        )
+
+        with self.assertRaisesRegex(ApiRequestError, "401"):
+            ExchangeRateApiClient(config).fetch_rates()
 
 
 class FakeClient(BaseApiClient):
@@ -185,7 +232,56 @@ class UpdaterTests(unittest.TestCase):
         )
 
         with self.assertRaises(ApiRequestError):
-            updater.run_update()
+            updater.run_update()\
+
+    def test_newer_rate_has_priority(self) -> None:
+        """Проверить приоритет более нового курса"""
+        storage = RatesStorage()
+
+        new_timestamp = to_utc_iso()
+        old_timestamp = to_utc_iso(
+            utc_now() - timedelta(hours=1)
+        )
+
+        new_entry: RateEntry = {
+            "rate": 60000.0,
+            "updated_at": new_timestamp,
+            "source": "test",
+        }
+
+        old_entry: RateEntry = {
+            "rate": 50000.0,
+            "updated_at": old_timestamp,
+            "source": "test",
+        }
+
+        first_result = storage.save_rates(
+            {"BTC_USD": new_entry},
+            new_timestamp,
+        )
+
+        second_result = storage.save_rates(
+            {"BTC_USD": old_entry},
+            old_timestamp,
+        )
+
+        self.assertEqual(first_result, 1)
+        self.assertEqual(second_result, 0)
+
+        default_snapshot: RateSnapshot = {
+            "pairs": {},
+            "last_refresh": None,
+        }
+
+        snapshot = storage.db.read_json(
+            "rates_file",
+            default_snapshot,
+        )
+
+        self.assertEqual(
+            snapshot["pairs"]["BTC_USD"]["rate"],
+            60000.0,
+        )
 
 
 if __name__ == "__main__":

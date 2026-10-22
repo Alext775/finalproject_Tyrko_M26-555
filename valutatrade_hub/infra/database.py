@@ -51,6 +51,25 @@ class DatabaseManager:
 
         return configured_path
 
+    def initialize_files(self) -> None:
+        """Создать отсутствующие JSON-хранилища"""
+        defaults: dict[str, object] = {
+            "users_file": [],
+            "portfolios_file": [],
+            "rates_file": {
+                "pairs": {},
+                "last_refresh": None,
+            },
+            "history_file": [],
+        }
+
+        with self.transaction_lock:
+            for settings_key, default_value in defaults.items():
+                path = self._path(settings_key)
+
+                if not path.exists():
+                    self.write_json(settings_key, default_value)
+
     def read_json(self, settings_key: str, default: T) -> T:
         """Прочитать JSON-файл"""
         with self._lock:

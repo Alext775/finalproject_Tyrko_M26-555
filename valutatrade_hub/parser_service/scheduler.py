@@ -30,6 +30,11 @@ class RatesScheduler:
         self._thread: Thread | None = None
         self._logger = logging.getLogger("valutatrade.parser")
 
+    @property
+    def interval_seconds(self) -> int:
+        """Получить интервал автоматического обновления"""
+        return self._interval_seconds
+
     def _run(self) -> None:
         """Периодически получать и сохранять курсы"""
         while not self._stop_event.wait(self._interval_seconds):
@@ -65,7 +70,7 @@ class RatesScheduler:
         self._thread = Thread(
             target=self._run,
             name="valutatrade-rates",
-            daemon=True,
+            daemon=False,
         )
 
         self._thread.start()
@@ -74,6 +79,8 @@ class RatesScheduler:
         """Остановить фоновое обновление"""
         self._stop_event.set()
 
-        if self._thread is not None:
-            self._thread.join(timeout=1)
+        thread = self._thread
+
+        if thread is not None:
+            thread.join()
             self._thread = None

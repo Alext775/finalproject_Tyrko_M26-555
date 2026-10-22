@@ -3,6 +3,7 @@
 import os
 import threading
 import tomllib
+from _thread import LockType
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -20,7 +21,7 @@ class SettingsLoader:
     """Единственный экземпляр настроек через __new__"""
 
     _instance: ClassVar["SettingsLoader | None"] = None
-    _instance_lock: ClassVar[threading.Lock] = threading.Lock()
+    _instance_lock: ClassVar[LockType] = threading.Lock()
 
     def __new__(cls) -> "SettingsLoader":
         """Создать или вернуть единственный экземпляр"""

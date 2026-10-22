@@ -151,6 +151,31 @@ class UseCasesTests(unittest.TestCase):
             1,
         )
 
+    def test_register_storage_failure(self) -> None:
+        """Проверить восстановление данных при ошибке записи"""
+        original_write = self.core.db.write_json
+
+        def failing_write(
+            settings_key: str,
+            value: object,
+        ) -> None:
+            """Имитировать сбой сохранения портфеля"""
+            if settings_key == "portfolios_file":
+                raise OSError("Тестовый сбой записи")
+
+            original_write(settings_key, value)
+
+        with patch.object(
+            self.core.db,
+            "write_json",
+            side_effect=failing_write,
+        ):
+            with self.assertRaises(OSError):
+                self.core.register("alice", "1234")
+
+        users = self.core.db.read_json("users_file", [])
+
+        self.assertEqual(users, [])
 
 if __name__ == "__main__":
     unittest.main()

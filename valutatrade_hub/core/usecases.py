@@ -64,20 +64,49 @@ class UseCases:
         username = _validate_username(username)
 
         with self.db.transaction_lock:
-            rows: list[JsonObject] = self.db.read_json("users_file", [])
+            users: list[JsonObject] = self.db.read_json(
+                "users_file",
+                [],
+            )
 
-            if any(row["username"] == username for row in rows):
-                raise ValueError(f"Имя пользователя '{username}' уже занято")
+            if any(row["username"] == username for row in users):
+                raise ValueError(
+                    f"Имя пользователя '{username}' уже занято"
+                )
 
-            new_id = max((row["user_id"] for row in rows), default=0) + 1
+            new_id = max(
+                (row["user_id"] for row in users),
+                default=0,
+            ) + 1
+
             user = User.create(new_id, username, password)
 
-            portfolios: list[JsonObject] = self.db.read_json("portfolios_file", [])
-            portfolios.append(Portfolio(user).to_dict())
-            rows.append(user.to_dict())
+            portfolios: list[JsonObject] = self.db.read_json(
+                "portfolios_file",
+                [],
+            )
 
-            self.db.write_json("portfolios_file", portfolios)
-            self.db.write_json("users_file", rows)
+            updated_users = [
+                *users,
+                user.to_dict(),
+            ]
+
+            updated_portfolios = [
+                *portfolios,
+                Portfolio(user).to_dict(),
+            ]
+
+            self.db.write_json("users_file", updated_users)
+
+            try:
+                self.db.write_json(
+                    "portfolios_file",
+                    updated_portfolios,
+                )
+
+            except OSError:
+                self.db.write_json("users_file", users)
+                raise
 
         return user.get_user_info()
 

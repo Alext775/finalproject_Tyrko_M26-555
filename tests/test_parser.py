@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 import requests
 
 from valutatrade_hub.core.exceptions import ApiRequestError
+from valutatrade_hub.core.utils import to_utc_iso, utc_now
 from valutatrade_hub.infra.settings import SettingsLoader
 from valutatrade_hub.parser_service.api_clients import (
     BaseApiClient,
@@ -99,13 +100,10 @@ class ApiClientTests(unittest.TestCase):
         ):
             CoinGeckoClient().fetch_rates()
 
-
     @patch("valutatrade_hub.parser_service.api_clients.requests.get")
     def test_invalid_json(self, get: Mock) -> None:
         """Проверить обработку неправильного JSON"""
-        get.return_value.json.side_effect = ValueError(
-            "Неверный JSON"
-        )
+        get.return_value.json.side_effect = ValueError("Неверный JSON")
 
         with self.assertRaisesRegex(
             ApiRequestError,
@@ -113,14 +111,11 @@ class ApiClientTests(unittest.TestCase):
         ):
             CoinGeckoClient().fetch_rates()
 
-
     @patch("valutatrade_hub.parser_service.api_clients.requests.get")
     def test_invalid_api_key(self, get: Mock) -> None:
         """Проверить обработку HTTP 401"""
         get.return_value.status_code = 401
-        get.return_value.raise_for_status.side_effect = (
-            requests.HTTPError("401")
-        )
+        get.return_value.raise_for_status.side_effect = requests.HTTPError("401")
 
         config = ParserConfig(
             exchangerate_api_key="invalid-key",
@@ -232,16 +227,14 @@ class UpdaterTests(unittest.TestCase):
         )
 
         with self.assertRaises(ApiRequestError):
-            updater.run_update()\
+            updater.run_update()
 
     def test_newer_rate_has_priority(self) -> None:
         """Проверить приоритет более нового курса"""
         storage = RatesStorage()
 
         new_timestamp = to_utc_iso()
-        old_timestamp = to_utc_iso(
-            utc_now() - timedelta(hours=1)
-        )
+        old_timestamp = to_utc_iso(utc_now() - timedelta(hours=1))
 
         new_entry: RateEntry = {
             "rate": 60000.0,

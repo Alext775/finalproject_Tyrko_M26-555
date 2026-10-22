@@ -70,14 +70,15 @@ class UseCases:
             )
 
             if any(row["username"] == username for row in users):
-                raise ValueError(
-                    f"Имя пользователя '{username}' уже занято"
-                )
+                raise ValueError(f"Имя пользователя '{username}' уже занято")
 
-            new_id = max(
-                (row["user_id"] for row in users),
-                default=0,
-            ) + 1
+            new_id = (
+                max(
+                    (row["user_id"] for row in users),
+                    default=0,
+                )
+                + 1
+            )
 
             user = User.create(new_id, username, password)
 
@@ -86,12 +87,12 @@ class UseCases:
                 [],
             )
 
-            updated_users = [
+            updated_users: list[JsonObject] = [
                 *users,
                 user.to_dict(),
             ]
 
-            updated_portfolios = [
+            updated_portfolios: list[JsonObject] = [
                 *portfolios,
                 Portfolio(user).to_dict(),
             ]

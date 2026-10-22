@@ -1,4 +1,3 @@
-
 """Тесты JSON-хранилища"""
 
 import os
@@ -44,9 +43,7 @@ class DatabaseTests(unittest.TestCase):
             "exchange_rates.json",
         ):
             with self.subTest(filename=filename):
-                self.assertTrue(
-                    (directory / filename).exists()
-                )
+                self.assertTrue((directory / filename).exists())
 
     def test_corrupted_json(self) -> None:
         """Проверить обработку поврежденного JSON"""

@@ -10,6 +10,7 @@ from unittest.mock import patch
 from valutatrade_hub.cli.interface import WalletCLI
 from valutatrade_hub.core.utils import to_utc_iso
 from valutatrade_hub.infra.settings import SettingsLoader
+from valutatrade_hub.parser_service.updater import UpdateResult
 
 
 class CLITests(unittest.TestCase):
@@ -84,45 +85,32 @@ class CLITests(unittest.TestCase):
             },
         )
 
-        self.command(
-            "register --username trader --password 1234"
-        )
-        self.command(
-            "login --username trader --password 1234"
-        )
+        self.command("register --username trader --password 1234")
+        self.command("login --username trader --password 1234")
         self.command("deposit --amount 10000")
 
-        purchase = self.command(
-            "buy --currency BTC --amount 0.05"
-        )
+        purchase = self.command("buy --currency BTC --amount 0.05")
         self.assertIn("Покупка выполнена", purchase)
 
-        sale = self.command(
-            "sell --currency BTC --amount 0.01"
-        )
+        sale = self.command("sell --currency BTC --amount 0.01")
         self.assertIn("Продажа выполнена", sale)
 
         portfolio = self.command("show-portfolio")
         self.assertIn("BTC", portfolio)
         self.assertIn("ИТОГО", portfolio)
 
-        quote = self.command(
-            "get-rate --from BTC --to USD"
-        )
+        quote = self.command("get-rate --from BTC --to USD")
         self.assertIn("60000", quote)
 
         rates = self.command("show-rates --currency BTC")
         self.assertIn("BTC_USD", rates)
 
-        error = self.command(
-            "sell --currency BTC --amount 100"
-        )
+        error = self.command("sell --currency BTC --amount 100")
         self.assertIn("Недостаточно средств", error)
-
 
     def test_update_rates_command(self) -> None:
         """Проверить вызов обновления курсов из CLI"""
-        fake_result = {
+        fake_result: UpdateResult = {
             "updated": 3,
             "failures": {},
             "last_refresh": to_utc_iso(),
@@ -131,13 +119,12 @@ class CLITests(unittest.TestCase):
         with patch(
             "valutatrade_hub.cli.interface.RatesUpdater.create_default"
         ) as create_updater:
-            create_updater.return_value.run_update.return_value = (
-                fake_result
-            )
+            create_updater.return_value.run_update.return_value = fake_result
 
             output = self.command("update-rates")
 
         self.assertIn("Обновлено курсов: 3", output)
+
 
 if __name__ == "__main__":
     unittest.main()

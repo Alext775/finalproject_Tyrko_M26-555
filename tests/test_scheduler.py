@@ -1,4 +1,3 @@
-
 """Тесты фонового обновления курсов"""
 
 import unittest
@@ -70,14 +69,12 @@ class SchedulerTests(unittest.TestCase):
                     "Фоновое обновление не выполнилось",
                 )
 
-                updater.run_update.assert_called_with(
-                    source="coingecko"
-                )
+                updater.run_update.assert_called_with(source="coingecko")
 
             finally:
                 scheduler.stop()
 
-        self.assertIsNone(scheduler._thread)
+        self.assertFalse(scheduler.is_running)
 
 
 if __name__ == "__main__":

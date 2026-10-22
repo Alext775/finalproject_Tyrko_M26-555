@@ -177,5 +177,6 @@ class UseCasesTests(unittest.TestCase):
 
         self.assertEqual(users, [])
 
+
 if __name__ == "__main__":
     unittest.main()

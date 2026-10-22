@@ -13,7 +13,7 @@ DEFAULT_INTERVAL_SECONDS = 300
 class RatesScheduler:
     """Планировщик периодического обновления курсов"""
 
-    def __init__(self, interval_seconds: int | None = None) -> None:
+    def __init__(self, interval_seconds: float | None = None) -> None:
         if interval_seconds is None:
             interval_seconds = int(
                 SettingsLoader().get(
@@ -31,9 +31,14 @@ class RatesScheduler:
         self._logger = logging.getLogger("valutatrade.parser")
 
     @property
-    def interval_seconds(self) -> int:
+    def interval_seconds(self) -> float:
         """Получить интервал автоматического обновления"""
         return self._interval_seconds
+
+    @property
+    def is_running(self) -> bool:
+        """Проверить состояние фонового потока"""
+        return self._thread is not None and self._thread.is_alive()
 
     def _run(self) -> None:
         """Периодически получать и сохранять курсы"""

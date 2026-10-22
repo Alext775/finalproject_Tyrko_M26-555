@@ -468,10 +468,7 @@ def main() -> None:
     scheduler.start()
 
     print("Автоматическое обновление курсов включено")
-    print(
-        f"Интервал обновления: "
-        f"{scheduler.interval_seconds} сек."
-    )
+    print(f"Интервал обновления: {scheduler.interval_seconds} сек.")
 
     try:
         WalletCLI().run()
